@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
     @Bindable var store: WorkstationStore
@@ -26,6 +27,7 @@ struct SettingsView: View {
                     }
                 }
                 .listStyle(.sidebar)
+                .frame(maxHeight: .infinity)
 
                 Divider()
 
@@ -44,7 +46,8 @@ struct SettingsView: View {
                             chromeURL: "http://localhost:3000",
                             simulatorEnabled: false,
                             simulatorDevice: "iPhone 16",
-                            spaceNumber: nil
+                            spaceNumber: nil,
+                            hotkey: nil
                         )
                         store.add(newWorkstation)
                         selectedWorkstation = newWorkstation
@@ -82,7 +85,7 @@ struct SettingsView: View {
                     systemImage: "square.stack.3d.up",
                     description: Text("Select a workstation or create a new one")
                 )
-                .frame(minWidth: 400)
+                .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(minWidth: 650, minHeight: 450)
@@ -222,7 +225,12 @@ struct WorkstationEditor: View {
                     .frame(width: 150)
                 }
 
-                Text("Tip: Create Spaces in Mission Control first (swipe up, click +)")
+                // Hotkey feature disabled due to macOS compatibility issues
+                // LabeledContent("Hotkey") {
+                //     HotkeyRecorderView(hotkey: $workstation.hotkey, workstationId: workstation.id)
+                // }
+
+                Text("Tip: Use Ctrl+1, Ctrl+2, etc. to switch between desktop spaces")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -231,6 +239,186 @@ struct WorkstationEditor: View {
         .padding()
     }
 }
+
+struct HotkeyRecorderView: NSViewRepresentable {
+    @Binding var hotkey: KeyboardShortcut?
+    var workstationId: UUID  // Track which workstation this is for
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> HotkeyRecorderNSView {
+        let view = HotkeyRecorderNSView()
+        view.delegate = context.coordinator
+        view.currentHotkey = hotkey
+        context.coordinator.hotkeyBinding = $hotkey
+        context.coordinator.currentWorkstationId = workstationId
+        return view
+    }
+
+    func updateNSView(_ nsView: HotkeyRecorderNSView, context: Context) {
+        // Stop any active recording if we switched to a different workstation
+        if context.coordinator.currentWorkstationId != workstationId {
+            nsView.stopRecordingIfNeeded()
+            context.coordinator.currentWorkstationId = workstationId
+        }
+
+        // Update the binding to point to the current workstation's hotkey
+        context.coordinator.hotkeyBinding = $hotkey
+        nsView.currentHotkey = hotkey
+        nsView.updateDisplay()
+    }
+
+    class Coordinator: HotkeyRecorderDelegate {
+        var hotkeyBinding: Binding<KeyboardShortcut?>?
+        var currentWorkstationId: UUID?
+
+        func hotkeyRecorded(_ shortcut: KeyboardShortcut?) {
+            hotkeyBinding?.wrappedValue = shortcut
+        }
+    }
+}
+
+protocol HotkeyRecorderDelegate: AnyObject {
+    func hotkeyRecorded(_ shortcut: KeyboardShortcut?)
+}
+
+extension HotkeyRecorderNSView {
+    func stopRecordingIfNeeded() {
+        if isRecording {
+            stopRecording()
+        }
+    }
+}
+
+class HotkeyRecorderNSView: NSView {
+    weak var delegate: HotkeyRecorderDelegate?
+    var currentHotkey: KeyboardShortcut?
+
+    fileprivate var isRecording = false
+    private let button = NSButton()
+    private let clearButton = NSButton()
+    private var eventMonitor: Any?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupUI()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupUI()
+    }
+
+    private func setupUI() {
+        button.bezelStyle = .roundRect
+        button.target = self
+        button.action = #selector(buttonClicked)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(button)
+
+        clearButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Clear")
+        clearButton.bezelStyle = .inline
+        clearButton.isBordered = false
+        clearButton.target = self
+        clearButton.action = #selector(clearClicked)
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+        clearButton.isHidden = true
+        addSubview(clearButton)
+
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: leadingAnchor),
+            button.centerYAnchor.constraint(equalTo: centerYAnchor),
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
+
+            clearButton.leadingAnchor.constraint(equalTo: button.trailingAnchor, constant: 4),
+            clearButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            clearButton.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+
+            heightAnchor.constraint(equalToConstant: 24)
+        ])
+
+        updateDisplay()
+    }
+
+    func updateDisplay() {
+        if isRecording {
+            button.title = "Press keys..."
+            button.contentTintColor = .controlAccentColor
+        } else if let hotkey = currentHotkey {
+            button.title = hotkey.displayString
+            button.contentTintColor = nil
+        } else {
+            button.title = "Click to record"
+            button.contentTintColor = .secondaryLabelColor
+        }
+        clearButton.isHidden = currentHotkey == nil || isRecording
+    }
+
+    @objc private func buttonClicked() {
+        if isRecording {
+            stopRecording()
+        } else {
+            startRecording()
+        }
+    }
+
+    @objc private func clearClicked() {
+        currentHotkey = nil
+        delegate?.hotkeyRecorded(nil)
+        updateDisplay()
+    }
+
+    private func startRecording() {
+        isRecording = true
+        updateDisplay()
+        window?.makeFirstResponder(self)
+
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, self.isRecording else { return event }
+
+            // Escape cancels
+            if event.keyCode == 53 {
+                self.stopRecording()
+                return nil
+            }
+
+            let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift]).rawValue
+            let flags = NSEvent.ModifierFlags(rawValue: modifiers)
+            let hasModifier = flags.contains(.command) || flags.contains(.option) ||
+                              flags.contains(.control) || flags.contains(.shift)
+
+            if hasModifier {
+                let shortcut = KeyboardShortcut(keyCode: event.keyCode, modifiers: modifiers)
+                self.currentHotkey = shortcut
+                self.delegate?.hotkeyRecorded(shortcut)
+                self.stopRecording()
+                return nil
+            }
+
+            return nil
+        }
+    }
+
+    fileprivate func stopRecording() {
+        isRecording = false
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+        updateDisplay()
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    deinit {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+}
+
 
 #Preview {
     SettingsView(store: {

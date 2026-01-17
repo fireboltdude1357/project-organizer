@@ -42,9 +42,19 @@ struct MenuBarView: View {
                             WorkstationRow(
                                 workstation: workstation,
                                 isActive: store.activeWorkstationId == workstation.id,
+                                isLaunched: store.isLaunched(workstation),
                                 onLaunch: {
                                     store.setActive(workstation)
-                                    WorkstationLauncher.launch(workstation, spaceNumber: workstation.spaceNumber)
+                                    if store.isLaunched(workstation) {
+                                        // Already launched - just switch to space
+                                        if let spaceNumber = workstation.spaceNumber {
+                                            WorkstationLauncher.switchToSpace(spaceNumber)
+                                        }
+                                    } else {
+                                        // First launch
+                                        WorkstationLauncher.launch(workstation, spaceNumber: workstation.spaceNumber)
+                                        store.markLaunched(workstation)
+                                    }
                                 }
                             )
                         }
@@ -84,6 +94,7 @@ struct MenuBarView: View {
 struct WorkstationRow: View {
     let workstation: Workstation
     let isActive: Bool
+    let isLaunched: Bool
     let onLaunch: () -> Void
 
     var body: some View {
@@ -92,6 +103,13 @@ struct WorkstationRow: View {
                 Circle()
                     .fill(workstation.color)
                     .frame(width: 10, height: 10)
+                    .overlay {
+                        if isLaunched {
+                            Circle()
+                                .stroke(workstation.color, lineWidth: 2)
+                                .frame(width: 16, height: 16)
+                        }
+                    }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(workstation.name)
@@ -106,8 +124,9 @@ struct WorkstationRow: View {
 
                 Spacer()
 
-                if isActive {
-                    Image(systemName: "checkmark.circle.fill")
+                if isLaunched {
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 6))
                         .foregroundStyle(.green)
                 }
             }

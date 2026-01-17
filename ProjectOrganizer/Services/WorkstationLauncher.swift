@@ -12,33 +12,47 @@ class WorkstationLauncher {
     static func launch(_ workstation: Workstation, spaceNumber: Int? = nil) {
         // Run on background thread to not block UI, but AppleScript calls will sync to main
         DispatchQueue.global(qos: .userInitiated).async {
-            // If a space is specified, switch to it first
-            if let space = spaceNumber {
-                switchToSpace(space)
-                // Give macOS time to complete the space switch
-                Thread.sleep(forTimeInterval: 0.5)
+            // Helper to ensure we stay on target space
+            let ensureSpace = {
+                if let space = spaceNumber {
+                    Thread.sleep(forTimeInterval: 0.3)
+                    switchToSpace(space)
+                    Thread.sleep(forTimeInterval: 0.5)
+                }
             }
 
-            // Launch apps sequentially with delays to prevent space-switching race conditions
+            // Switch to target space first
+            if let space = spaceNumber {
+                print("Switching to space \(space) before launch...")
+                switchToSpace(space)
+                Thread.sleep(forTimeInterval: 1.0)
+            }
+
+            // Launch apps sequentially, switching back to target space after each
+            // because some apps pull focus to their previously-used space
+            print("Launching iTerm...")
             launchiTerm(workstation)
-            Thread.sleep(forTimeInterval: 0.3)
+            ensureSpace()
 
             if let url = workstation.chromeURL, !url.isEmpty {
+                print("Launching Chrome...")
                 launchChrome(url)
-                Thread.sleep(forTimeInterval: 0.3)
+                ensureSpace()
             }
 
             if workstation.cursorEnabled {
+                print("Launching Cursor...")
                 launchCursor(workstation.path)
-                Thread.sleep(forTimeInterval: 0.5)
+                ensureSpace()
             }
 
             if workstation.simulatorEnabled {
+                print("Launching Simulator...")
                 launchSimulator(workstation.simulatorDevice)
-                Thread.sleep(forTimeInterval: 0.3)
+                ensureSpace()
             }
 
-            // Final switch back to target space in case any app pulled focus elsewhere
+            // Final switch to ensure we end on target space
             if let space = spaceNumber {
                 Thread.sleep(forTimeInterval: 0.5)
                 switchToSpace(space)
@@ -49,14 +63,41 @@ class WorkstationLauncher {
     // MARK: - Space Management
 
     static func switchToSpace(_ number: Int) {
-        // Use keyboard shortcut Ctrl+Number to switch spaces
-        // This requires "Keyboard Shortcuts > Mission Control > Switch to Desktop X" to be enabled
-        let script = """
-        tell application "System Events"
-            key code \(17 + number) using control down
-        end tell
-        """
-        runAppleScript(script)
+        // Key codes for number keys (they're not sequential on Mac keyboards!)
+        let keyCodeMap: [Int: CGKeyCode] = [
+            1: 18, 2: 19, 3: 20, 4: 21, 5: 23,
+            6: 22, 7: 26, 8: 28, 9: 25
+        ]
+
+        guard let keyCode = keyCodeMap[number] else {
+            print("Invalid space number: \(number)")
+            return
+        }
+
+        print("switchToSpace called with number: \(number), keyCode: \(keyCode)")
+
+        // Use CGEvent to post keyboard events directly - more reliable than AppleScript
+        let source = CGEventSource(stateID: .hidSystemState)
+
+        // Create key down event with Control modifier
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) else {
+            print("Failed to create keyDown event")
+            return
+        }
+        keyDown.flags = .maskControl
+
+        // Create key up event
+        guard let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
+            print("Failed to create keyUp event")
+            return
+        }
+        keyUp.flags = .maskControl
+
+        // Post the events
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+
+        print("switchToSpace CGEvent posted")
     }
 
     static func createNewSpace() {
