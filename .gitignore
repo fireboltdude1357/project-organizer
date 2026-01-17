@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode user-specific data
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad
+
+# Xcode build
+build/
+DerivedData/
+*.moved-aside
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Dependencies
+Pods/
+Carthage/
+
+# Swift Package Manager
+.build/
+.swiftpm/
