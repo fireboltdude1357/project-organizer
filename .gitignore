@@ -2,11 +2,15 @@
 .DS_Store
 .AppleDouble
 .LSOverride
+*.swp
+*~
 
 # Xcode user-specific data
 xcuserdata/
 *.xcuserstate
 *.xcuserdatad
+*.xccheckout
+*.xcscmblueprint
 
 # Xcode build
 build/
@@ -26,3 +30,11 @@ Carthage/
 # Swift Package Manager
 .build/
 .swiftpm/
+Package.resolved
+
+# Archives
+*.xcarchive
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace

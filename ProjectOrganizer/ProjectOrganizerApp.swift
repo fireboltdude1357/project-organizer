@@ -2,16 +2,23 @@
 //  ProjectOrganizerApp.swift
 //  ProjectOrganizer
 //
-//  Created by Tanner Sharon on 1/16/26.
-//
 
 import SwiftUI
 
 @main
 struct ProjectOrganizerApp: App {
+    @State private var store = WorkstationStore()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        // Menu bar app
+        MenuBarExtra("Projects", systemImage: "folder.fill") {
+            MenuBarView(store: store)
+        }
+        .menuBarExtraStyle(.window)
+
+        // Settings window
+        Settings {
+            SettingsView(store: store)
         }
     }
 }
